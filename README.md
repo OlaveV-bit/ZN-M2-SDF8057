@@ -19,13 +19,11 @@
 
 ## ✨ 固件核心特性
 
-1. **冷启动/重启网口修复**：
-   已内置 `network_fix` 开机自动延迟刷新脚本 (`START=99`)，彻底解决冷启动或软重启后由于网卡/驱动握手时序竞争导致的 `169.254.x.x` 无法获取 IP 问题。
-2. **Qualcomm NSS 硬件加速**：
+1. **Qualcomm NSS 硬件加速**：
    集成完整 NSS 加速套件（`kmod-qca-nss-drv` / `ecm` / `crypto`），实现低 CPU 占用的千兆满速转发。
-3. **OpenClash & Go 22.x**：
+2. **OpenClash & Go 22.x**：
    替换为稳定版 Golang 22.x 编译环境，完美兼容 OpenClash (Mihomo 核心) 及大内存规则分流。
-4. **精美主题与细节修正**：
+3. **精美主题与细节修正**：
    集成 Argon 与 Design 双主题，并修补了 Design 主题的快捷代理跳转链接。
 
 ---
