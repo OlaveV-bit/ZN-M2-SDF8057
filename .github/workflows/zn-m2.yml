@@ -2,12 +2,12 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 #
 # File: .github/workflows/zn-m2.yml
-# Description: Build OpenWrt ZN-M2 firmware (OpenClash, without gecoosac) using GitHub Actions
+# Description: Build OpenWrt ZN-M2 firmware (OpenClash + MosDNS) using GitHub Actions
 #
 name: zn-m2 build
 on:
   schedule:
-    - cron: '23 19 * * *'   # Daily at 03:23 CST
+    - cron: '23 19 * * *'   # 每天北京时间 03:23 运行
   workflow_dispatch:
 defaults:
   run:
@@ -30,19 +30,24 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
-      latest_pkg_sha: ${{ steps.check.outputs.latest_pkg_sha }}
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/cache/restore@v4
-      with:
-        path: /tmp/openclash-cache
-        key: openclash-release-tag
-        restore-keys: openclash-release-tag
-    - name: Check upstream updates
+    - name: Check OpenClash upstream release
       id: check
       env:
         GH_TOKEN: ${{ github.token }}
-      run: bash .github/scripts/zn-m2/check-upstream.sh
+      run: |
+        SHOULD_BUILD=false
+        LATEST_OC=$(gh release list -R vernesong/OpenClash -L 1 --json tagName -q '.[0].tagName' || echo "")
+        LATEST_TAG=$(gh release list -R "$GITHUB_REPOSITORY" -L 1 --json tagName -q '.[0].tagName' || echo "")
+        
+        if [ -n "$LATEST_OC" ] && [ "${LATEST_OC//-r/-}" != "${LATEST_TAG//-r/-}" ]; then
+          echo "OpenClash new release detected: ${LATEST_TAG:-none} -> $LATEST_OC"
+          SHOULD_BUILD=true
+        else
+          echo "OpenClash release unchanged ($LATEST_TAG)"
+        fi
+        echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
 
   build:
     needs: check
@@ -66,10 +71,22 @@ jobs:
         remove-codeql: 'true'
         remove-docker-images: 'true'
 
+    # 2. 内嵌编译环境初始化，直接在 Workflow 中完成依赖安装和时区设置
     - name: Setup build environment
       env:
         DEBIAN_FRONTEND: noninteractive
-      run: bash .github/scripts/zn-m2/setup-env.sh
+      run: |
+        sudo apt-get update
+        curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
+        sudo apt-get install -y rename pigz libfuse-dev upx subversion clang lua5.1 liblua5.1-0-dev
+        sudo apt-get autoremove -y --purge
+        sudo apt-get clean
+        sudo timedatectl set-timezone "$TZ"
+        git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+        git config --global user.name "$GITHUB_ACTOR"
+        git config --global init.defaultBranch master
+        sudo mkdir -p /workdir
+        sudo chown "$USER:$(id -gn)" /workdir
 
     - name: Clone source code
       working-directory: /workdir
@@ -77,7 +94,7 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # 2. 缓存编译下载包 (dl目录)，大幅减少后续编译下载耗时
+    # 3. 缓存编译下载包 (dl目录)，大幅减少后续编译下载耗时
     - name: Restore dl cache
       uses: actions/cache@v4
       with:
@@ -98,7 +115,7 @@ jobs:
       run: |
         [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default
         cd openwrt
-        bash "$GITHUB_WORKSPACE/$DIY_P1_SH"
+        [ -f "$GITHUB_WORKSPACE/$DIY_P1_SH" ] && bash "$GITHUB_WORKSPACE/$DIY_P1_SH"
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -106,7 +123,7 @@ jobs:
     - name: Modify feeds
       run: |
         cd openwrt
-        bash "$GITHUB_WORKSPACE/$DIY_P2_SH"
+        [ -f "$GITHUB_WORKSPACE/$DIY_P2_SH" ] && bash "$GITHUB_WORKSPACE/$DIY_P2_SH"
 
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
@@ -116,9 +133,9 @@ jobs:
         [ -e files ] && mv files openwrt/files
         [ -e "$CONFIG_FILE" ] && cp "$CONFIG_FILE" openwrt/.config
         cd openwrt
-        bash "$GITHUB_WORKSPACE/$DIY_P3_SH"
+        [ -f "$GITHUB_WORKSPACE/$DIY_P3_SH" ] && bash "$GITHUB_WORKSPACE/$DIY_P3_SH"
 
-    - name: Download packages(with retry)
+    - name: Download packages (with retry)
       run: |
         cd openwrt
         make defconfig
@@ -134,22 +151,46 @@ jobs:
         echo "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
 
-    - name: Save firmware
+    # 4. 内嵌固件整理与 SHA256 校验码自动生成
+    - name: Organize firmware files
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        mkdir -p /tmp/firmware-basic
-        cp -a . /tmp/firmware-basic/
+        echo "FIRMWARE=$PWD" >> "$GITHUB_ENV"
+        mkdir -p /tmp/release-firmware
+        cp -a ./* /tmp/release-firmware/
+        cd /tmp/release-firmware
+        sha256sum * > sha256sums.txt
+        echo "Release firmware files & checksums:"
+        ls -la /tmp/release-firmware/
 
-    - name: Organize firmware files
-      run: bash .github/scripts/zn-m2/organize-firmware.sh
-
+    # 5. 内嵌 Release 元数据生成
     - name: Generate release info
       id: tag
-      run: bash .github/scripts/zn-m2/generate-release.sh
+      run: |
+        MANIFEST=$(ls openwrt/bin/targets/*/*/*.manifest 2>/dev/null | head -1 || echo "")
+        OPENCLASH_VER=""
+        if [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ]; then
+          OPENCLASH_VER=$(grep -m1 "luci-app-openclash" "$MANIFEST" | awk -F' - ' '{print $2}' || true)
+        fi
+        
+        if [ -z "$OPENCLASH_VER" ]; then
+          OPENCLASH_VER="build-${GITHUB_RUN_NUMBER}"
+        fi
+
+        echo "release_tag=${OPENCLASH_VER}" >> "$GITHUB_OUTPUT"
+        echo "release_name=ZN-M2 OpenClash ${OPENCLASH_VER}" >> "$GITHUB_OUTPUT"
+
+        cat << 'EOF' > release.txt
+        ## ZN-M2 (IPQ6000) 硬件定制固件
+        - 架构底座：IPQ6000 (OpenWrt 21.02)
+        - 硬件优化：全效适配 1GB 大内存与 USB 供电强化版
+        - 核心服务：OpenClash + MosDNS 分流解析
+        - 校验文件：详细软件包 manifest 及文件 sha256 校验参见附件。
+        EOF
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@v2
       if: success()
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -159,7 +200,7 @@ jobs:
         body_path: release.txt
         files: /tmp/release-firmware/*
 
-    - name: Delete old workflows runs
+    - name: Delete old workflow runs
       if: success()
       uses: ophub/delete-releases-workflows@v0.1.0
       with:
