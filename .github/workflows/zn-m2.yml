@@ -41,7 +41,7 @@ jobs:
         LATEST_TAG=$(gh release list -R "$GITHUB_REPOSITORY" -L 1 --json tagName -q '.[0].tagName' || echo "")
         
         if [ -n "$LATEST_OC" ] && [ "${LATEST_OC//-r/-}" != "${LATEST_TAG//-r/-}" ]; then
-          echo "OpenClash new release detected: ${LATEST_TAG:-none} -> $LATEST_OC"
+          echo "OpenClash new release detected: ${LATEST_TAG:-none} ->$LATEST_OC"
           SHOULD_BUILD=true
         else
           echo "OpenClash release unchanged ($LATEST_TAG)"
@@ -97,7 +97,7 @@ jobs:
     - name: Clone source code
       working-directory: /workdir
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        git clone $REPO_URL -b$REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     # 4. 缓存编译下载包 (dl目录)
@@ -117,14 +117,16 @@ jobs:
         restore-keys: |
           openwrt-ccache-znm2-
 
-    # 5. 加载自定义信息源（由于 feeds.conf.default 在根目录，直接复制）
+    # 5. 加载自定义信息源（安全判断，防止文件缺失导致中断）
     - name: Load custom feeds
       run: |
         if [ -f "feeds.conf.default" ]; then
-          cp feeds.conf.default openwrt/feeds.conf.default
+          cp -f feeds.conf.default openwrt/feeds.conf.default || true
+        else
+          echo "No custom feeds.conf.default in root, using source default."
         fi
         cd openwrt
-        [ -f "$GITHUB_WORKSPACE/$DIY_P1_SH" ] && bash "$GITHUB_WORKSPACE/$DIY_P1_SH"
+        [ -f "$GITHUB_WORKSPACE/$DIY_P1_SH" ] && bash "$GITHUB_WORKSPACE/$DIY_P1_SH" || true
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -192,27 +194,4 @@ jobs:
 
         cat << 'EOF' > release.txt
         ## ZN-M2 (IPQ6000) 硬件定制固件
-        - 架构底座：IPQ6000 (OpenWrt 21.02)
-        - 硬件优化：全效适配 1GB 大内存与 USB 供电强化版
-        - 核心服务：OpenClash + MosDNS 分流解析
-        - 校验文件：详细软件包 manifest 及文件 sha256 校验参见附件。
-        EOF
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
-      if: success()
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      with:
-        name: ${{ steps.tag.outputs.release_name }}
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: /tmp/release-firmware/*
-
-    - name: Delete old workflow runs
-      if: success()
-      uses: ophub/delete-releases-workflows@v0.1.0
-      with:
-        delete_workflows: true
-        workflows_keep_day: 3
-        gh_token: ${{ github.token }}
+        - 架构底座：IPQ6000
