@@ -59,11 +59,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    # 1. 深度清理服务器自带的无用大型软件，腾出约 20GB-30GB 空间防止爆盘
+    # 1. 深度清理服务器自带的无用大型软件，腾出约 30GB+ 空间防止爆盘
     - name: Maximize build disk space
       uses: easimon/maximize-build-space@master
       with:
-        root-reserve-mb: 2048
+        root-reserve-mb: 4096
         swap-size-mb: 4096
         remove-dotnet: 'true'
         remove-android: 'true'
@@ -71,7 +71,14 @@ jobs:
         remove-codeql: 'true'
         remove-docker-images: 'true'
 
-    # 2. 内嵌编译环境初始化，直接在 Workflow 中完成依赖安装和时区设置
+    # 2. 额外执行一次系统级清理，确保临时目录和包缓存完全清空
+    - name: Additional disk cleanup
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost
+        sudo apt-get clean
+        df -h
+
+    # 3. 内嵌编译环境初始化
     - name: Setup build environment
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -94,7 +101,7 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # 3. 缓存编译下载包 (dl目录)，大幅减少后续编译下载耗时
+    # 4. 缓存编译下载包 (dl目录)
     - name: Restore dl cache
       uses: actions/cache@v4
       with:
@@ -151,7 +158,7 @@ jobs:
         echo "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
 
-    # 4. 内嵌固件整理与 SHA256 校验码自动生成
+    # 5. 内嵌固件整理与 SHA256 校验码自动生成
     - name: Organize firmware files
       run: |
         cd openwrt/bin/targets/*/*
@@ -164,7 +171,7 @@ jobs:
         echo "Release firmware files & checksums:"
         ls -la /tmp/release-firmware/
 
-    # 5. 内嵌 Release 元数据生成
+    # 6. 内嵌 Release 元数据生成
     - name: Generate release info
       id: tag
       run: |
