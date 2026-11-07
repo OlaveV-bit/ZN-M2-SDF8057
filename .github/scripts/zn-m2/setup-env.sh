@@ -1,9 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-sudo -E apt-get -qq update
-sudo -E apt-get -qq install -y build-essential clang flex bison gawk gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
-sudo -E apt-get -qq autoremove --purge
-sudo -E apt-get -qq clean
+
+sudo apt-get update
+curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
+sudo apt-get install -y rename pigz libfuse-dev upx subversion clang lua5.1 liblua5.1-0-dev
+sudo apt-get autoremove -y --purge
+sudo apt-get clean
 sudo timedatectl set-timezone "$TZ"
+git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+git config --global user.name "$GITHUB_ACTOR"
+git config --global init.defaultBranch master
 sudo mkdir -p /workdir
-sudo chown $USER:$GROUPS /workdir
+sudo chown "$USER:$(id -gn)" /workdir
