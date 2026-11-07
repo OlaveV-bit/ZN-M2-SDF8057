@@ -1,1 +1,168 @@
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+#
+# File: .github/workflows/zn-m2.yml
+# Description: Build OpenWrt ZN-M2 firmware (OpenClash, without gecoosac) using GitHub Actions
+#
+name: zn-m2 build
+on:
+  schedule:
+    - cron: '23 19 * * *'   # Daily at 03:23 CST
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+permissions:
+  contents: write
+  actions: write
+env:
+  REPO_URL: https://github.com/openwrt-fork/sdf8057-ipq6000.git
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: ./config/zn-m2.config
+  DIY_P1_SH: ./scripts/zn-m2/diy-part1.sh
+  DIY_P2_SH: ./scripts/zn-m2/diy-part2.sh
+  DIY_P3_SH: ./scripts/zn-m2/diy-part3.sh
+  TZ: Asia/Shanghai
+jobs:
+  check:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-22.04
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      latest_pkg_sha: ${{ steps.check.outputs.latest_pkg_sha }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/cache/restore@v4
+      with:
+        path: /tmp/openclash-cache
+        key: openclash-release-tag
+        restore-keys: openclash-release-tag
+    - name: Check upstream updates
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash .github/scripts/zn-m2/check-upstream.sh
 
+  build:
+    needs: check
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || needs.check.outputs.should_build == 'true')
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # 1. 深度清理服务器自带的无用大型软件，腾出约 20GB-30GB 空间防止爆盘
+    - name: Maximize build disk space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 2048
+        swap-size-mb: 4096
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
+
+    - name: Setup build environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: bash .github/scripts/zn-m2/setup-env.sh
+
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    # 2. 缓存编译下载包 (dl目录)，大幅减少后续编译下载耗时
+    - name: Restore dl cache
+      uses: actions/cache@v4
+      with:
+        path: openwrt/dl
+        key: openwrt-dl-znm2-${{ hashFiles('config/zn-m2.config') }}
+        restore-keys: |
+          openwrt-dl-znm2-
+
+    - name: Restore ccache cache
+      uses: actions/cache@v4
+      with:
+        path: openwrt/.ccache
+        key: openwrt-ccache-znm2-${{ github.run_id }}
+        restore-keys: |
+          openwrt-ccache-znm2-
+
+    - name: Load custom feeds
+      run: |
+        [ -e "$FEEDS_CONF" ] && mv "$FEEDS_CONF" openwrt/feeds.conf.default
+        cd openwrt
+        bash "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Modify feeds
+      run: |
+        cd openwrt
+        bash "$GITHUB_WORKSPACE/$DIY_P2_SH"
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e "$CONFIG_FILE" ] && cp "$CONFIG_FILE" openwrt/.config
+        cd openwrt
+        bash "$GITHUB_WORKSPACE/$DIY_P3_SH"
+
+    - name: Download packages(with retry)
+      run: |
+        cd openwrt
+        make defconfig
+        export DOWNLOAD_ARGS="--retry-connrefused --waitretry=10 --max-retries=5"
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Build firmware (without gecoosac)
+      run: |
+        cd openwrt
+        sed -i '/gecoosac/d' .config
+        make defconfig
+        echo "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 V=s
+
+    - name: Save firmware
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        mkdir -p /tmp/firmware-basic
+        cp -a . /tmp/firmware-basic/
+
+    - name: Organize firmware files
+      run: bash .github/scripts/zn-m2/organize-firmware.sh
+
+    - name: Generate release info
+      id: tag
+      run: bash .github/scripts/zn-m2/generate-release.sh
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v3
+      if: success()
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        name: ${{ steps.tag.outputs.release_name }}
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: /tmp/release-firmware/*
+
+    - name: Delete old workflows runs
+      if: success()
+      uses: ophub/delete-releases-workflows@v0.1.0
+      with:
+        delete_workflows: true
+        workflows_keep_day: 3
+        gh_token: ${{ github.token }}
