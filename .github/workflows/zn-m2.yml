@@ -154,9 +154,19 @@ jobs:
         echo "release_tag=v$(date +"%Y.%m.%d.%H%M")-zn-m2-basic" >> $GITHUB_OUTPUT
         touch release.txt
         echo "ZN-M2 firmware" >> release.txt
-        grep luci-app-openclash ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print "OpenClash " "`"$2"`"}' >> release.txt
+        
+        # 动态匹配 manifest 文件，防止硬编码文件名导致找不到
+        MANIFEST_FILE=$(ls ${{ env.FIRMWARE }}/*.manifest 2>/dev/null | head -1 || true)
+        if [ -n "$MANIFEST_FILE" ] && [ -f "$MANIFEST_FILE" ]; then
+          grep luci-app-openclash "$MANIFEST_FILE" | awk -F" - " '{print "OpenClash " "`"$2"`"}' >> release.txt || true
+          OC_VER=$(grep luci-app-openclash "$MANIFEST_FILE" | awk -F" - " '{print $2}' || echo "unknown")
+          echo "release_name=OpenClash $OC_VER" >> $GITHUB_OUTPUT
+        else
+          echo "OpenClash built-in" >> release.txt
+          echo "release_name=ZN-M2 OpenWrt Build $(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+        fi
+        
         echo "详细包信息请查看 manifest 文件" >> release.txt
-        grep luci-app-openclash ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print "release_name=OpenClash " $2}' >> $GITHUB_OUTPUT
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
