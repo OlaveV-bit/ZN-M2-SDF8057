@@ -12,19 +12,17 @@
 # 修改固件版本信息，加入编译日期
 sed -i "s/DISTRIB_DESCRIPTION='*.*'/DISTRIB_DESCRIPTION='OpenWrt IPQ6000 ZN-M2 (build time: $(date +%Y%m%d))'/g" package/base-files/files/etc/openwrt_release
 
-# 替换 golang 版本为更稳健的 22.x
-rm -rf feeds/packages/lang/golang
-git clone https://github.com/sbwml/packages_lang_golang -b 22.x feeds/packages/lang/golang
-
 # ttyd免登陆
 #sed -i -r 's#/bin/login#/bin/login -f root#g' feeds/packages/utils/ttyd/files/ttyd.config
 
 # design修改proxy链接
-sed -i -r "s#navbar_proxy = 'passwall'#navbar_proxy = 'openclash'#g" feeds/luci/themes/luci-theme-design/luasrc/view/themes/design/header.htm
+sed -i -r "s#navbar_proxy = 'passwall'#navbar_proxy = 'openclash'#g" feeds/luci/themes/luci-theme-design/luasrc/view/themes/design/header.htm || true
 
 # ---------------------------------------------------------
 # 修复重启/冷启动网口握手慢导致偶尔获取不到 IP 的问题
 # ---------------------------------------------------------
+mkdir -p package/base-files/files/etc/init.d
+
 cat << 'EOF' > package/base-files/files/etc/init.d/network_fix
 #!/bin/sh /etc/rc.common
 
