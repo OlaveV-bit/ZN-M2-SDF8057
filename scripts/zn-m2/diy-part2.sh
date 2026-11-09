@@ -7,4 +7,4 @@
 #
 #优先安装 openclash
 ./scripts/feeds install -a -f -p openclash
-./scripts/feeds install -a -f -p openclash_luci
+#./scripts/feeds install -a -f -p openclash_luci
