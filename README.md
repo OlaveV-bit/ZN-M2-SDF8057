@@ -1,38 +1,54 @@
-# 兆能 ZN-M2 OpenWrt 极客定制版
+# OpenWrt ZN-M2 (IPQ6000) 自动编译流程
 
-纯有线主路由｜弱电箱专用｜内核 4.4.60｜1GB 大内存魔改版
+本项目基于 GitHub Actions 实现兆能 ZN-M2 (Qualcomm IPQ6000 平台) OpenWrt 固件的自动化编译与构建，集成 OpenClash 核心、NSS 硬件加速及相关网络增强组件。
 
-控制台地址 `192.168.1.1` 默认密码 `password`
+## 🌟 项目特性
 
-* U-Boot 刷机用 `*factory.ubi`
-* OpenWrt 系统升级用 `*sysupgrade.bin`
+* **全新构建工具链**：工作流预先清理 runner 磁盘空间，并自动替换环境中的 Golang 至 `22.x` 分支，保障 OpenClash 及其依赖无缝编译。
+* **高性能组件**：内置 IPQ6000 平台 NSS 硬件加速驱动（`kmod-qca-nss-ecm` 等），提升硬件转发性能。
+* **网络握手优化**：预置开机延迟触发 LAN 口刷新脚本，解决冷启动/重启时交换机端口握手慢导致的无法获取 IP 问题。
+* **现代化 UI**：内置 Argon 与 Design 主题，并自动优化菜单导航。
+* **自动化打包与 Release**：构建成功后自动清理冗余文件，动态解析包清单（Manifest）提取 OpenClash 版本号，并发布至 Releases 页面。
 
----
+## 🛠️ 包含的主要插件与工具
 
-## 🛠️ 硬件与环境配置
+| 类别 | 包含组件 / 插件 |
+| ----- | ----- |
+| **代理与核心** | `luci-app-openclash`, `openclash`, `clash-meta`, `chinadns-ng` |
+| **硬件加速** | `kmod-qca-nss-drv`, `kmod-qca-nss-ecm`, `kmod-qca-nss-crypto` |
+| **网络工具** | `ddns-scripts` (含阿里云/DNSPod), `luci-app-upnp`, `proto-bonding`, `luci-app-arpbind` |
+| **系统工具** | `htop`, `screen`, `zram-swap`, `tcping`, `curl`, `wget-ssl`, `ip-full`, `ipset` |
+| **界面主题** | `luci-theme-argon`, `luci-theme-design`, `luci-app-filetransfer` |
 
-* **底层平台**：Qualcomm IPQ6000 (兆能 ZN-M2)
-* **硬件魔改**：已升级至 **1GB RAM**，并加装 **USB 供电/扩展**
-* **推荐拓扑**：运营商光猫 (桥接) $\rightarrow$ ZN-M2 (PPPoE 拨号主路由) $\rightarrow$ 下级无线路由器 (AP 模式)
+## 📂 项目目录结构
 
----
+```text
+.
+├── .github/
+│   └── workflows/
+│       └── zn-m2.yml             # GitHub Actions 工作流配置文件
+├── config/
+│   └── zn-m2.config              # OpenWrt 编译配置文件 (.config)
+├── scripts/zn-m2/
+│   ├── diy-part1.sh              # Update feeds 前的自定义脚本
+│   ├── diy-part2.sh              # Update/Install feeds 过程中的自定义脚本 (Golang 22.x 替换)
+│   └── diy-part3.sh              # 配置加载后的源码修正与补丁脚本
+└── feeds.conf.default            # 自定义 Feeds 源设置
+```
 
-## ✨ 固件核心特性
+## 🚀 使用说明
 
-1. **冷启动/重启网口修复**：
-   已内置 `network_fix` 开机自动延迟刷新脚本 (`START=99`)，彻底解决冷启动或软重启后由于网卡/驱动握手时序竞争导致的 `169.254.x.x` 无法获取 IP 问题。
-2. **Qualcomm NSS 硬件加速**：
-   集成完整 NSS 加速套件（`kmod-qca-nss-drv` / `ecm` / `crypto`），实现低 CPU 占用的千兆满速转发。
-3. **OpenClash & Go 22.x**：
-   替换为稳定版 Golang 22.x 编译环境，完美兼容 OpenClash (Mihomo 核心) 及大内存规则分流。
-4. **精美主题与细节修正**：
-   集成 Argon 与 Design 双主题，并修补了 Design 主题的快捷代理跳转链接。
+### 手动触发编译
 
----
+1. 打开你的 GitHub 仓库页面。
+2. 点击上方菜单栏的 **Actions**。
+3. 在左侧选中 **zn-m2 build** 工作流。
+4. 点击右侧的 **Run workflow** 按钮即可手动触发编译。
 
-## 🔍 1GB 内存识别验证
+编译完成后，发布的固件文件及清单文件可在仓库的 **Releases** 页面直接下载。
 
-刷入固件后，您可以通过以下方式确认系统已成功识别全部 1GB 内存：
+## 📜 许可与致谢
 
-1. **SSH 命令行**：执行 `free -h`，查看 `Mem Total` 是否在 **900MB - 1010MB** 左右。
-2. **LuCI 后台**：进入 **状态** $\rightarrow$ **概览** $\rightarrow$ **系统信息** 查看内存条总量。
+* 源码上游：[openwrt-fork/sdf8057-ipq6000](https://github.com/openwrt-fork/sdf8057-ipq6000)
+* 代理插件：[vernesong/OpenClash](https://github.com/vernesong/OpenClash)
+* Golang 支持环境：[sbwml/packages_lang_golang](https://github.com/sbwml/packages_lang_golang)
