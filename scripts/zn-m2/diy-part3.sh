@@ -21,3 +21,23 @@ git clone https://github.com/sbwml/packages_lang_golang -b 22.x feeds/packages/l
 
 # design修改proxy链接
 sed -i -r "s#navbar_proxy = 'passwall'#navbar_proxy = 'openclash'#g" feeds/luci/themes/luci-theme-design/luasrc/view/themes/design/header.htm
+
+# ---------------------------------------------------------
+# 修复重启/冷启动网口握手慢导致偶尔获取不到 IP 的问题
+# ---------------------------------------------------------
+cat << 'EOF' > package/base-files/files/etc/init.d/network_fix
+#!/bin/sh /etc/rc.common
+
+# 让该脚本在系统所有服务启动的最后阶段执行
+START=99
+STOP=15
+
+start() {
+    # 延迟 5 秒，等待底层网络栈和交换机完全就绪后，强制触发一次 LAN 口刷新
+    sleep 5
+    ifup lan
+}
+EOF
+
+# 赋予脚本可执行权限
+chmod +x package/base-files/files/etc/init.d/network_fix
