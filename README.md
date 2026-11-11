@@ -1,6 +1,6 @@
-# OpenWrt ZN-M2 (IPQ6000) 自动编译流程
+# OpenWrt ZN-M2 (IPQ6000) 编译流程
 
-本项目基于 GitHub Actions 实现兆能 ZN-M2 (Qualcomm IPQ6000 平台) OpenWrt 固件的自动化编译与构建，集成 OpenClash 核心、NSS 硬件加速及相关网络增强组件。
+本项目基于 GitHub Actions 实现兆能 ZN-M2 (Qualcomm IPQ6000 平台) OpenWrt 固件的编译与构建，集成 OpenClash 核心、NSS 硬件加速及相关网络增强组件。
 
 ## 🌟 项目特性
 
